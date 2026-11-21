@@ -1,0 +1,11 @@
+change_type: bug_fix
+
+component: pkg/status
+
+note: Report partially reloaded pipelines as healthy when at least one receiver remains running.
+
+issues: [49631]
+
+subtext:
+
+change_logs: [user]

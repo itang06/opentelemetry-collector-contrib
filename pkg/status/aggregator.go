@@ -88,10 +88,11 @@ type UnsubscribeFunc func()
 // pipelines they belong to and the collector overall.
 type Aggregator struct {
 	// mu protects aggregateStatus and subscriptions from concurrent modification
-	mu              sync.RWMutex
-	aggregateStatus *AggregateStatus
-	subscriptions   map[string]*list.List
-	aggregationFunc aggregationFunc
+	mu                      sync.RWMutex
+	aggregateStatus         *AggregateStatus
+	subscriptions           map[string]*list.List
+	aggregationFunc         aggregationFunc
+	pipelineAggregationFunc aggregationFunc
 }
 
 // NewAggregator returns a *status.Aggregator.
@@ -101,8 +102,9 @@ func NewAggregator(errPriority ErrorPriority) *Aggregator {
 			Event:              componentstatus.NewEvent(componentstatus.StatusNone),
 			ComponentStatusMap: make(map[string]*AggregateStatus),
 		},
-		subscriptions:   make(map[string]*list.List),
-		aggregationFunc: newAggregationFunc(errPriority),
+		subscriptions:           make(map[string]*list.List),
+		aggregationFunc:         newAggregationFunc(errPriority),
+		pipelineAggregationFunc: newPipelineAggregationFunc(errPriority),
 	}
 }
 
@@ -159,7 +161,7 @@ func (a *Aggregator) updateStatus(pipelineScope Scope, source *componentstatus.I
 	pipelineStatus.ComponentStatusMap[componentKey] = &AggregateStatus{
 		Event: event,
 	}
-	pipelineStatus.Event = a.aggregationFunc(pipelineStatus)
+	pipelineStatus.Event = a.pipelineAggregationFunc(pipelineStatus)
 	a.notifySubscribers(pipelineScope, pipelineStatus)
 }
 

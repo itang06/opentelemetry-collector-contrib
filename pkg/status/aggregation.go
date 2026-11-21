@@ -4,8 +4,10 @@
 package status // import "github.com/open-telemetry/opentelemetry-collector-contrib/pkg/status"
 
 import (
+	"strings"
 	"time"
 
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componentstatus"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 )
@@ -67,9 +69,23 @@ type aggregationFunc func(*AggregateStatus) Event
 // we use the latest event as it represents the last time a successful status was
 // reported.
 func newAggregationFunc(priority ErrorPriority) aggregationFunc {
+	return newScopedAggregationFunc(priority, false)
+}
+
+func newPipelineAggregationFunc(priority ErrorPriority) aggregationFunc {
+	return newScopedAggregationFunc(priority, true)
+}
+
+func newScopedAggregationFunc(priority ErrorPriority, isPipeline bool) aggregationFunc {
 	statusFunc := func(st *AggregateStatus) componentstatus.Status {
 		seen := make(map[componentstatus.Status]struct{})
-		for _, cs := range st.ComponentStatusMap {
+		// Partial reloads retain stopped receivers in the status map. Once another receiver is
+		// healthy, those stale entries should not affect the status of the remaining pipeline.
+		ignoreStoppedReceivers := isPipeline && hasRunningReceiver(st)
+		for key, cs := range st.ComponentStatusMap {
+			if ignoreStoppedReceivers && isReceiver(key) && cs.Status() == componentstatus.StatusStopped {
+				continue
+			}
 			seen[cs.Status()] = struct{}{}
 		}
 
@@ -160,4 +176,18 @@ func newAggregationFunc(priority ErrorPriority) aggregationFunc {
 			attributes: pcommon.NewMap(),
 		}
 	}
+}
+
+func hasRunningReceiver(st *AggregateStatus) bool {
+	for key, cs := range st.ComponentStatusMap {
+		if isReceiver(key) && cs.Status() == componentstatus.StatusOK {
+			return true
+		}
+	}
+	return false
+}
+
+func isReceiver(componentKey string) bool {
+	receiverPrefix := strings.ToLower(component.KindReceiver.String()) + ":"
+	return strings.HasPrefix(componentKey, receiverPrefix)
 }

@@ -208,6 +208,52 @@ func TestPipelineAggregateStatus(t *testing.T) {
 	})
 }
 
+func TestPipelineAggregateStatusDuringPartialReload(t *testing.T) {
+	agg := status.NewAggregator(status.PriorityPermanent)
+	traces := testhelpers.NewPipelineMetadata(pipeline.SignalTraces)
+	secondaryReceiverID := componentstatus.NewInstanceID(
+		component.NewIDWithName(component.MustNewType("otlp"), "secondary"),
+		component.KindReceiver,
+	).WithPipelines(traces.PipelineID)
+
+	testhelpers.SeedAggregator(agg, traces.InstanceIDs(), componentstatus.StatusOK)
+	agg.RecordStatus(secondaryReceiverID, componentstatus.NewEvent(componentstatus.StatusOK))
+	agg.RecordStatus(secondaryReceiverID, componentstatus.NewEvent(componentstatus.StatusStopped))
+
+	st, ok := agg.AggregateStatus(status.Scope(traces.PipelineID.String()), status.Concise)
+	require.True(t, ok)
+	assertEventsMatch(t, componentstatus.StatusOK, st)
+}
+
+func TestPipelineAggregateStatusDuringPartialReloadWithError(t *testing.T) {
+	agg := status.NewAggregator(status.PriorityPermanent)
+	traces := testhelpers.NewPipelineMetadata(pipeline.SignalTraces)
+	secondaryReceiverID := componentstatus.NewInstanceID(
+		component.NewIDWithName(component.MustNewType("otlp"), "secondary"),
+		component.KindReceiver,
+	).WithPipelines(traces.PipelineID)
+
+	testhelpers.SeedAggregator(agg, traces.InstanceIDs(), componentstatus.StatusOK)
+	agg.RecordStatus(secondaryReceiverID, componentstatus.NewEvent(componentstatus.StatusStopped))
+	agg.RecordStatus(traces.ExporterID, componentstatus.NewRecoverableErrorEvent(assert.AnError))
+
+	st, ok := agg.AggregateStatus(status.Scope(traces.PipelineID.String()), status.Concise)
+	require.True(t, ok)
+	assertErrorEventsMatch(t, componentstatus.StatusRecoverableError, assert.AnError, st)
+}
+
+func TestPipelineAggregateStatusWithStoppedExporter(t *testing.T) {
+	agg := status.NewAggregator(status.PriorityPermanent)
+	traces := testhelpers.NewPipelineMetadata(pipeline.SignalTraces)
+
+	testhelpers.SeedAggregator(agg, traces.InstanceIDs(), componentstatus.StatusOK)
+	agg.RecordStatus(traces.ExporterID, componentstatus.NewEvent(componentstatus.StatusStopped))
+
+	st, ok := agg.AggregateStatus(status.Scope(traces.PipelineID.String()), status.Concise)
+	require.True(t, ok)
+	assertEventsMatch(t, componentstatus.StatusStopping, st)
+}
+
 func TestPipelineAggregateStatusVerbose(t *testing.T) {
 	agg := status.NewAggregator(status.PriorityPermanent)
 	traces := testhelpers.NewPipelineMetadata(pipeline.SignalTraces)
